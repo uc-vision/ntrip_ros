@@ -9,3 +9,5 @@ But the connection had closed and it would crash again. I ended up detecting zer
 It continues on without a glitch.
 
 I intend to use it with https://github.com/ros-agriculture/ublox_f9p (which may not be committed yet).
+
+t may also require this package: https://github.com/tilk/rtcm_msgs
