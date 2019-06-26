@@ -11,3 +11,5 @@ It continues on without a glitch.
 I intend to use it with https://github.com/ros-agriculture/ublox_f9p
 
 It may also require this package: https://github.com/tilk/rtcm_msgs
+
+A similar NTRIP client (may be better than mine) is here: https://github.com/dayjaby/ntrip_ros
