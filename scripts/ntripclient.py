@@ -11,6 +11,7 @@ from threading import Thread
 
 from http.client import HTTPConnection
 from http.client import IncompleteRead
+from ntrip_response import NTRIPResponse
 
 import time
 
@@ -42,6 +43,9 @@ class ntripconnect(Thread):
         }
         connection = HTTPConnection(self.ntc.ntrip_server)
         connection.request('GET', '/'+self.ntc.ntrip_stream, self.ntc.nmea_gga, headers)
+        rospy.loginfo(connection.response_class)
+        connection.response_class = NTRIPResponse
+        rospy.loginfo(connection.response_class)
         response = connection.getresponse()
         if response.status != 200: raise Exception("blah")
         buf = bytes()
