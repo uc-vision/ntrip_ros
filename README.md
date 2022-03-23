@@ -1,17 +1,13 @@
 # ntrip_ros
-NTRIP client, imports RTCM streams to ROS topic
+Connects to a ntrip caster and publishes rtcm messages
 
-This was forked from github.com/tilk/ntrip_ros
+Changes from the original repo: github.com/tilk/ntrip_ros
+* Ported to Python 3 - Neotic
+* Patched httpresponse to allow connecting to u-center ntrip caster
 
-The CORS correction server that I am using does not have the /n/r characters. So I parsed out individual messages and published each one on the /rtcm ROS topic.
-It would crash with IncompleteRead error. I added patch at top of file.
-But the connection had closed and it would crash again. I ended up detecting zero length data and closing and reopening the data stream.
-It continues on without a glitch.
+Requires rtcm-msgs package: https://github.com/tilk/rtcm_msgs
+
+I'm using this with https://github.com/KumarRobotics/ublox which recently has had rtcm message support added. Some system repos (robostack and ubuntu) don't have the latest version so you may need to build from source in your catkin workspace.
 
 You can generate the require $GPGGA message at this site. https://www.nmeagen.org/ Set a point near where you want to run and click "Generate NMEA file". Cut and paste the $GPGGA message into the launch file.
 
-I intend to use it with https://github.com/ros-agriculture/ublox_f9p
-
-It may also require this package: https://github.com/tilk/rtcm_msgs
-
-A similar NTRIP client (may be better than mine) is here: https://github.com/dayjaby/ntrip_ros
