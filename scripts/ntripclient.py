@@ -43,11 +43,10 @@ class ntripconnect(Thread):
         }
         connection = HTTPConnection(self.ntc.ntrip_server)
         connection.request('GET', '/'+self.ntc.ntrip_stream, self.ntc.nmea_gga, headers)
-        rospy.loginfo(connection.response_class)
+        # Patch the response class to work with ublox ntrip server.
         connection.response_class = NTRIPResponse
-        rospy.loginfo(connection.response_class)
         response = connection.getresponse()
-        if response.status != 200: raise Exception("blah")
+        if response.status != 200: raise Exception("Unexcpted http resopnse code: {response.status}")
         buf = bytes()
         rmsg = Message()
         restart_count = 0
@@ -91,12 +90,12 @@ class ntripconnect(Thread):
             else:
                 ''' If zero length data, close connection and reopen it '''
                 restart_count = restart_count + 1
-                rospy.logwarn("Zero length ", restart_count)
+                rospy.logwarn(f"Zero length {restart_count}")
                 connection.close()
                 connection = HTTPConnection(self.ntc.ntrip_server)
                 connection.request('GET', '/'+self.ntc.ntrip_stream, self.ntc.nmea_gga, headers)
                 response = connection.getresponse()
-                if response.status != 200: raise Exception("blah")
+                if response.status != 200: raise Exception("Unexcpted http resopnse code: {response.status}")
                 buf = ""
 
         connection.close()
