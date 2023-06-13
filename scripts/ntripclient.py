@@ -92,6 +92,7 @@ class ntripclient:
                 restart_count = restart_count + 1
                 rospy.logwarn(f"Zero length {restart_count}")
                 connection.close()
+                time.sleep(15)   # you get banned from rtk2go for rapid retries
                 connection = HTTPConnection(self.ntrip_server)
                 connection.request('GET', '/'+self.ntrip_stream, self.nmea_gga, headers)
                 response = connection.getresponse()
@@ -102,5 +103,6 @@ class ntripclient:
 
 if __name__ == '__main__':
     c = ntripclient()
+    time.sleep(10)
     c.run()
 
