@@ -1,26 +1,25 @@
 #!/usr/bin/env python
 
-import rospy
-from datetime import datetime
+import rclpy
+from rclpy.node import Node
 
 from rtcm_msgs.msg import Message
 
-from base64 import b64encode
 import socket
-
 import time
 
 
-class tcpclient:
+class TCPClient(Node):
     def __init__(self):
-        rospy.init_node('ntripclient', anonymous=True)
+        super().__init__('ntripclient')
 
-        self.rtcm_topic = rospy.get_param('~rtcm_topic', 'rtcm')
+        self.declare_parameter('rtcm_topic', 'rtcm')
+        self._rtcm_topic = self.get_parameter('rtcm_topic').value
 
-        self.pub = rospy.Publisher(self.rtcm_topic, Message, queue_size=10)
+        self.pub = self.create_publisher(Message, self._rtcm_topic, 10)
 
     def monitor(self):
-        while(not rospy.is_shutdown()):
+        while(rclpy.ok()):
             self.run()
             time.sleep(10)
 
@@ -30,7 +29,7 @@ class tcpclient:
         connection.connect(("rtcm.autonabit.nz", 5016))
         buf = bytes()
         rmsg = Message()
-        while(not rospy.is_shutdown()):
+        while(rclpy.ok()):
 
             ''' This now separates individual RTCM messages and publishes each one on the same topic '''
             data = connection.recv(1)
@@ -50,7 +49,7 @@ class tcpclient:
                         buf += data
                     rmsg.message = buf
                     rmsg.header.seq += 1
-                    rmsg.header.stamp = rospy.get_rostime()
+                    rmsg.header.stamp = rclpy.time.Time()
                     self.pub.publish(rmsg)
                     buf = bytes()
                 else: 
@@ -58,12 +57,18 @@ class tcpclient:
                     pass
             else:
                 ''' If zero length data, close connection and reopen it '''
-                rospy.logwarn(f"Zero length")
+                self.get_logger().info('Zero length')
                 return 
 
         connection.close()
 
-if __name__ == '__main__':
-    c = tcpclient()
-    c.run()
+def main(args=None):
+  rclpy.init(args=args)
+  node = TCPClient()
+  time.sleep(10)
+  node.monitor()
+  node.destroy_node()
+  rclpy.shutdown()
 
+if __name__ == '__main__':
+  main()

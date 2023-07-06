@@ -1,16 +1,14 @@
 #!/usr/bin/env python
 
-import rospy
-from datetime import datetime
+import rclpy
+from rclpy.node import Node
 
 #from nmea_msgs.msg import Sentence
 from rtcm_msgs.msg import Message
 
 from base64 import b64encode
-from threading import Thread
 
 from http.client import HTTPConnection
-from http.client import IncompleteRead
 from ntrip_response import NTRIPResponse
 
 import time
@@ -29,20 +27,29 @@ http.client.HTTPResponse.read = patch_http_response_read(http.client.HTTPRespons
 
 
 
-class ntripclient:
+class NTripClient(Node):
     def __init__(self):
-        rospy.init_node('ntripclient', anonymous=True)
+        super().__init__('ntripclient')
 
-        self.rtcm_topic = rospy.get_param('~rtcm_topic', 'rtcm')
-        self.nmea_topic = rospy.get_param('~nmea_topic', 'nmea')
+        self.declare_parameters('', [
+            ('rtcm_topic', 'rtcm'),
+            ('nmea_topic', 'nmea'),
+            ('ntrip_server', str),
+            ('ntrip_user', str),
+            ('ntrip_pass', str),
+            ('ntrip_stream', str),
+            ('nmea_gga', str)
+            ])
+        self.rtcm_topic = self.get_parameter('rtcm_topic').value
+        self.nmea_topic = self.get_parameter('nmea_topic').value
 
-        self.ntrip_server = rospy.get_param('~ntrip_server')
-        self.ntrip_user = rospy.get_param('~ntrip_user')
-        self.ntrip_pass = rospy.get_param('~ntrip_pass')
-        self.ntrip_stream = rospy.get_param('~ntrip_stream')
-        self.nmea_gga = rospy.get_param('~nmea_gga')
+        self.ntrip_server = self.get_parameter('ntrip_server').value
+        self.ntrip_user = self.get_parameter('ntrip_user').value
+        self.ntrip_pass = self.get_parameter('ntrip_pass').value
+        self.ntrip_stream = self.get_parameter('ntrip_stream').value
+        self.nmea_gga = self.get_parameter('nmea_gga').value
 
-        self.pub = rospy.Publisher(self.rtcm_topic, Message, queue_size=10)
+        self.pub = self.create_publisher(Message, self.rtcm_topic, 10)
 
     def run(self):
 
@@ -61,7 +68,7 @@ class ntripclient:
         buf = bytes()
         rmsg = Message()
         restart_count = 0
-        while(not rospy.is_shutdown()):
+        while(rclpy.ok()):
 
             ''' This now separates individual RTCM messages and publishes each one on the same topic '''
             data = response.read(1)
@@ -81,7 +88,7 @@ class ntripclient:
                         buf += data
                     rmsg.message = buf
                     rmsg.header.seq += 1
-                    rmsg.header.stamp = rospy.get_rostime()
+                    rmsg.header.stamp = rclpy.time.Time()
                     self.pub.publish(rmsg)
                     buf = bytes()
                 else: 
@@ -90,7 +97,7 @@ class ntripclient:
             else:
                 ''' If zero length data, close connection and reopen it '''
                 restart_count = restart_count + 1
-                rospy.logwarn(f"Zero length {restart_count}")
+                self.get_logger().info(f'Zero length {restart_count}')
                 connection.close()
                 time.sleep(15)   # you get banned from rtk2go for rapid retries
                 connection = HTTPConnection(self.ntrip_server)
@@ -101,8 +108,13 @@ class ntripclient:
 
         connection.close()
 
-if __name__ == '__main__':
-    c = ntripclient()
-    time.sleep(10)
-    c.run()
+def main(args=None):
+  rclpy.init(args=args)
+  node = NTripClient()
+  time.sleep(10)
+  node.run()
+  node.destroy_node()
+  rclpy.shutdown()
 
+if __name__ == '__main__':
+  main()

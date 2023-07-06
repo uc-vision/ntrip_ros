@@ -1,4 +1,4 @@
-from http.client import HTTPResponse, BadStatusLine
+from http.client import HTTPResponse, BadStatusLine, RemoteDisconnected, LineTooLong
 
 _MAXLINE = 65536
 

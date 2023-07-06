@@ -2,7 +2,7 @@
 Connects to a ntrip caster and publishes rtcm messages
 
 Changes from the original repo: github.com/tilk/ntrip_ros
-* Ported to Python 3 - Neotic
+* Ported to Python 3.10 - Humble
 * Patched httpresponse to allow connecting to u-center ntrip caster
 
 Requires rtcm-msgs package: https://github.com/tilk/rtcm_msgs
