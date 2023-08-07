@@ -2,6 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 
 #from nmea_msgs.msg import Sentence
 from rtcm_msgs.msg import Message
@@ -34,11 +35,11 @@ class NTripClient(Node):
         self.declare_parameters('', [
             ('rtcm_topic', 'rtcm'),
             ('nmea_topic', 'nmea'),
-            ('ntrip_server', str),
-            ('ntrip_user', str),
-            ('ntrip_pass', str),
-            ('ntrip_stream', str),
-            ('nmea_gga', str)
+            ('ntrip_server', Parameter.Type.STRING),
+            ('ntrip_user', Parameter.Type.STRING),
+            ('ntrip_pass', Parameter.Type.STRING),
+            ('ntrip_stream', Parameter.Type.STRING),
+            ('nmea_gga', Parameter.Type.STRING)
             ])
         self.rtcm_topic = self.get_parameter('rtcm_topic').value
         self.nmea_topic = self.get_parameter('nmea_topic').value
@@ -64,12 +65,11 @@ class NTripClient(Node):
         # Patch the response class to work with ublox ntrip server.
         connection.response_class = NTRIPResponse
         response = connection.getresponse()
-        if response.status != 200: raise Exception("Unexcpted http resopnse code: {response.status}")
+        if response.status != 200: raise Exception("Unexpected http response code: {response.status}")
         buf = bytes()
         rmsg = Message()
         restart_count = 0
         while(rclpy.ok()):
-
             ''' This now separates individual RTCM messages and publishes each one on the same topic '''
             data = response.read(1)
             if len(data) != 0:
@@ -87,8 +87,7 @@ class NTripClient(Node):
                         data = response.read(1)
                         buf += data
                     rmsg.message = buf
-                    rmsg.header.seq += 1
-                    rmsg.header.stamp = rclpy.time.Time()
+                    rmsg.header.stamp = rclpy.time.Time().to_msg()
                     self.pub.publish(rmsg)
                     buf = bytes()
                 else: 
@@ -111,8 +110,11 @@ class NTripClient(Node):
 def main(args=None):
   rclpy.init(args=args)
   node = NTripClient()
+  node.get_logger().info('Initialising client...')
   time.sleep(10)
+  node.get_logger().info('Initialised')
   node.run()
+  node.get_logger().info('Destroying client...')
   node.destroy_node()
   rclpy.shutdown()
 
