@@ -9,7 +9,7 @@ from rtcm_msgs.msg import Message
 from base64 import b64encode
 
 from http.client import HTTPConnection
-from ntrip_response import NTRIPResponse
+from .ntrip_response import NTRIPResponse
 
 import time
 
