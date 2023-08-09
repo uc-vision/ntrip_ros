@@ -48,7 +48,6 @@ class TCPClient(Node):
                         data = connection.recv(1)
                         buf += data
                     rmsg.message = buf
-                    rmsg.header.seq += 1
                     rmsg.header.stamp = rclpy.time.Time()
                     self.pub.publish(rmsg)
                     buf = bytes()
