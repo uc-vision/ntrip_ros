@@ -4,15 +4,21 @@ import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 
-#from nmea_msgs.msg import Sentence
+import traceback
 from rtcm_msgs.msg import Message
 
 from base64 import b64encode
 
 from http.client import HTTPConnection
 from .ntrip_response import NTRIPResponse
+from dataclasses import dataclass
+from threading import Thread, Event
+from rcl_interfaces.msg import SetParametersResult
+from rclpy.executors import MultiThreadedExecutor
 
 import time
+from rclpy.impl.rcutils_logger import RcutilsLogger
+
 
 ''' This is to fix the IncompleteRead error
     http://bobrochel.blogspot.com/2010/11/bad-servers-chunked-encoding-and.html'''
@@ -26,31 +32,28 @@ def patch_http_response_read(func):
     return inner
 http.client.HTTPResponse.read = patch_http_response_read(http.client.HTTPResponse.read)
 
+@dataclass
+class NTripConfig:
+  ntrip_server: str
+  ntrip_user: str
+  ntrip_pass: str
+  ntrip_stream: str
+  nmea_gga: str
 
 
-class NTripClient(Node):
-    def __init__(self):
-        super().__init__('ntripclient')
+class NTripClient:
 
-        self.declare_parameters('', [
-            ('rtcm_topic', 'rtcm'),
-            ('nmea_topic', 'nmea'),
-            ('ntrip_server', Parameter.Type.STRING),
-            ('ntrip_user', Parameter.Type.STRING),
-            ('ntrip_pass', Parameter.Type.STRING),
-            ('ntrip_stream', Parameter.Type.STRING),
-            ('nmea_gga', Parameter.Type.STRING)
-            ])
-        self.rtcm_topic = self.get_parameter('rtcm_topic').value
-        self.nmea_topic = self.get_parameter('nmea_topic').value
+    def __init__(self, rtcm_publisher, config: NTripConfig, condition: Event):
+        self.ntrip_server = config.ntrip_server
+        self.ntrip_user = config.ntrip_user
+        self.ntrip_pass = config.ntrip_pass
+        self.ntrip_stream = config.ntrip_stream
+        self.nmea_gga = config.nmea_gga
+        
+        self.pub = rtcm_publisher
+        self.condition = condition
+        self.logger = RcutilsLogger(name="Ntrip_client_logger")
 
-        self.ntrip_server = self.get_parameter('ntrip_server').value
-        self.ntrip_user = self.get_parameter('ntrip_user').value
-        self.ntrip_pass = self.get_parameter('ntrip_pass').value
-        self.ntrip_stream = self.get_parameter('ntrip_stream').value
-        self.nmea_gga = self.get_parameter('nmea_gga').value
-
-        self.pub = self.create_publisher(Message, self.rtcm_topic, 10)
 
     def run(self):
 
@@ -69,7 +72,8 @@ class NTripClient(Node):
         buf = bytes()
         rmsg = Message()
         restart_count = 0
-        while(rclpy.ok()):
+
+        while not self.condition.is_set():
             ''' This now separates individual RTCM messages and publishes each one on the same topic '''
             data = response.read(1)
             if len(data) != 0:
@@ -96,7 +100,7 @@ class NTripClient(Node):
             else:
                 ''' If zero length data, close connection and reopen it '''
                 restart_count = restart_count + 1
-                self.get_logger().info(f'Zero length {restart_count}')
+                self.logger.info(f'Zero length {restart_count}')
                 connection.close()
                 time.sleep(15)   # you get banned from rtk2go for rapid retries
                 connection = HTTPConnection(self.ntrip_server)
@@ -107,16 +111,83 @@ class NTripClient(Node):
 
         connection.close()
 
+class Ntrip(Node):
+    
+    def declare_server_parameters(self, hosts):
+      for name in hosts:
+        self.declare_parameter(name + '.host', '')
+        self.declare_parameter(name + '.user', '')
+        self.declare_parameter(name + '.pass', '')
+        self.declare_parameter(name + '.stream', '')
+        self.declare_parameter(name + '.nmea_gga', '')
+    
+    def parameters_callback(self, params):
+      for param in params:
+        if param.name == "server":
+          if param.value not in self.servers:
+            self.get_logger().warn(f'{param.value} not in servers')
+          if self.srv_thread is not None:
+            self.stop_ntrip_thread()
+          self.start_ntrip_thread()
+      return SetParametersResult(successful=True)
+
+    def __init__(self):
+      super().__init__('ntripclient')
+      self.srv_thread = None
+      self.condition = None
+
+      self.declare_parameter('rtcm_topic', 'rtcm')
+      self.declare_parameter('servers', [''])
+      self.declare_parameter('server', '')
+      
+      self.rtcm_topic = self.get_parameter('rtcm_topic').value
+      self.server = self.get_parameter('server').value
+      self.servers = self.get_parameter('servers').value
+
+      self.declare_server_parameters(self.servers)
+      self.add_on_set_parameters_callback(self.parameters_callback)
+
+    def get_ntrip_client(self):
+      config = NTripConfig(
+        ntrip_server = self.get_parameter(self.server + '.host').value,
+        ntrip_user = self.get_parameter(self.server +'.user').value,
+        ntrip_pass = self.get_parameter(self.server +'.pass').value,
+        ntrip_stream = self.get_parameter(self.server +'.stream').value,
+        nmea_gga = self.get_parameter(self.server +'.nmea_gga').value
+      )
+      self.condition = Event()
+      pub = self.create_publisher(Message, self.rtcm_topic, 10)
+      return NTripClient(pub, config, self.condition)
+    
+    def start_ntrip_thread(self):
+      ntrip_client = self.get_ntrip_client()
+      self.srv_thread = Thread(target=ntrip_client.run, daemon=True)
+      self.srv_thread.start()
+
+    def stop_ntrip_thread(self):
+      self.condition.set()
+      self.srv_thread.join()
+
+
 def main(args=None):
   rclpy.init(args=args)
-  node = NTripClient()
-  node.get_logger().info('Initialising client...')
-  time.sleep(10)
-  node.get_logger().info('Initialised')
-  node.run()
-  node.get_logger().info('Destroying client...')
-  node.destroy_node()
-  rclpy.shutdown()
+  
+  try:
+    node = None
+    node = Ntrip()
+    e = MultiThreadedExecutor()
+    node.start_ntrip_thread()
+    e.add_node(node)
+    rclpy.spin(node)
+
+  except Exception as exception:  
+    traceback_logger_node = Node('ntrip_logger')
+    traceback_logger_node.get_logger().error(traceback.format_exc())  
+    raise exception
+
+  finally:
+    if node is not None:
+      node.destroy_node()
 
 if __name__ == '__main__':
   main()
