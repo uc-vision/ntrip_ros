@@ -168,6 +168,11 @@ class Ntrip(Node):
       self.condition.set()
       self.srv_thread.join()
 
+    def destroy_node(self):
+      self.stop_ntrip_thread()
+      super().destroy_node()
+   
+
 
 def main(args=None):
   rclpy.init(args=args)
