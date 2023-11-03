@@ -56,7 +56,7 @@ class NTripClient:
 
 
     def run(self):
-
+      try:
         headers = {
             'Ntrip-Version': 'Ntrip/2.0',
             'User-Agent': 'NTRIP ntrip_ros',
@@ -110,6 +110,11 @@ class NTripClient:
                 buf = ""
 
         connection.close()
+      except Exception as e:
+        self.logger.error(traceback.format_exc())  
+        raise e
+
+         
 
 class Ntrip(Node):
     
@@ -129,6 +134,7 @@ class Ntrip(Node):
           if self.srv_thread is not None:
             self.stop_ntrip_thread()
           self.start_ntrip_thread()
+          self.server = param.value
       return SetParametersResult(successful=True)
 
     def __init__(self):
@@ -161,10 +167,12 @@ class Ntrip(Node):
     
     def start_ntrip_thread(self):
       ntrip_client = self.get_ntrip_client()
+      self.get_logger().info(f'Start Ntrip server: {self.server}')
       self.srv_thread = Thread(target=ntrip_client.run, daemon=True)
       self.srv_thread.start()
 
     def stop_ntrip_thread(self):
+      self.get_logger().info('Stopping Ntrip server')
       self.condition.set()
       self.srv_thread.join()
 
