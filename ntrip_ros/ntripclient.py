@@ -2,7 +2,6 @@
 
 import rclpy
 from rclpy.node import Node
-from rclpy.parameter import Parameter
 
 import traceback
 from rtcm_msgs.msg import Message
@@ -14,7 +13,7 @@ from .ntrip_response import NTRIPResponse
 from dataclasses import dataclass
 from threading import Thread, Event
 from rcl_interfaces.msg import SetParametersResult
-from rclpy.executors import MultiThreadedExecutor
+
 
 import time
 from rclpy.impl.rcutils_logger import RcutilsLogger
@@ -112,7 +111,7 @@ class NTripClient:
         connection.close()
       except Exception as e:
         self.logger.error(traceback.format_exc())  
-        raise e
+        return
 
          
 
@@ -131,20 +130,22 @@ class Ntrip(Node):
         if param.name == "server":
           if param.value not in self.servers:
             self.get_logger().warn(f'{param.value} not in servers')
-          if self.srv_thread is not None:
-            self.stop_ntrip_thread()
-          self.start_ntrip_thread()
+            continue
+          self.parameter_change = True
           self.server = param.value
       return SetParametersResult(successful=True)
 
     def __init__(self):
       super().__init__('ntripclient')
+
       self.srv_thread = None
       self.condition = None
+      self.parameter_change = False
 
       self.declare_parameter('rtcm_topic', 'rtcm')
       self.declare_parameter('servers', [''])
       self.declare_parameter('server', '')
+      self.declare_parameter('retry_timeout', 20.0)
       
       self.rtcm_topic = self.get_parameter('rtcm_topic').value
       self.server = self.get_parameter('server').value
@@ -152,6 +153,13 @@ class Ntrip(Node):
 
       self.declare_server_parameters(self.servers)
       self.add_on_set_parameters_callback(self.parameters_callback)
+
+      self.get_logger().info(f'Start Ntrip Server: {self.server}')
+      self.start_ntrip_thread()
+
+      self.retry_timeout = self.get_parameter('retry_timeout').value
+      self.last_restart_time = self.get_clock().now()
+      self.timer = self.create_timer(1 / 10.0, self.loop)
 
     def get_ntrip_client(self):
       config = NTripConfig(
@@ -165,42 +173,59 @@ class Ntrip(Node):
       pub = self.create_publisher(Message, self.rtcm_topic, 10)
       return NTripClient(pub, config, self.condition)
     
+    def is_thread_alive(self):
+      if self.srv_thread is not None:
+        return self.srv_thread.is_alive()
+      
+    def restart_ntrip_thread(self):
+      if self.srv_thread is not None:
+        self.get_logger().info('Stopping Ntrip Server')
+        self.stop_ntrip_thread()
+
+      self.get_logger().info(f'Start Ntrip Server: {self.server}')
+      self.start_ntrip_thread()
+    
     def start_ntrip_thread(self):
-      ntrip_client = self.get_ntrip_client()
-      self.get_logger().info(f'Start Ntrip server: {self.server}')
-      self.srv_thread = Thread(target=ntrip_client.run, daemon=True)
-      self.srv_thread.start()
+      if self.srv_thread is None:
+        ntrip_client = self.get_ntrip_client()
+        
+        self.srv_thread = Thread(target=ntrip_client.run, daemon=True)
+        self.srv_thread.start()
 
     def stop_ntrip_thread(self):
-      self.get_logger().info('Stopping Ntrip server')
       self.condition.set()
       self.srv_thread.join()
+      self.srv_thread = None
 
     def destroy_node(self):
       self.stop_ntrip_thread()
       super().destroy_node()
-   
 
+    def loop(self):
+      if self.parameter_change and self.is_thread_alive():
+        self.restart_ntrip_thread()
+        self.parameter_change = False
+
+      current_time = self.get_clock().now()
+      sec_since_last_command = ( current_time - self.last_restart_time ).nanoseconds / 1e9
+      if not self.is_thread_alive() and sec_since_last_command > self.retry_timeout:
+        self.last_restart_time = current_time
+        self.get_logger().info('Dead. Restarting...')
+        self.restart_ntrip_thread()
+        
 
 def main(args=None):
   rclpy.init(args=args)
-  
+  node = Ntrip()
+
   try:
-    node = None
-    node = Ntrip()
-    e = MultiThreadedExecutor()
-    node.start_ntrip_thread()
-    e.add_node(node)
     rclpy.spin(node)
-
-  except Exception as exception:  
-    traceback_logger_node = Node('ntrip_logger')
-    traceback_logger_node.get_logger().error(traceback.format_exc())  
-    raise exception
-
+  except KeyboardInterrupt:
+    logger = RcutilsLogger(name="ntrip_client")
+    logger.info('Keyboard interrupt. Shutting down...')
   finally:
-    if node is not None:
-      node.destroy_node()
+    node.destroy_node()
+    rclpy.try_shutdown()
 
 if __name__ == '__main__':
   main()
