@@ -145,7 +145,7 @@ class Ntrip(Node):
       self.declare_parameter('rtcm_topic', 'rtcm')
       self.declare_parameter('servers', [''])
       self.declare_parameter('server', '')
-      self.declare_parameter('retry_timeout', 20.0)
+      self.declare_parameter('retry_time_sec', 20.0)
       
       self.rtcm_topic = self.get_parameter('rtcm_topic').value
       self.server = self.get_parameter('server').value
@@ -157,7 +157,7 @@ class Ntrip(Node):
       self.get_logger().info(f'Start Ntrip Server: {self.server}')
       self.start_ntrip_thread()
 
-      self.retry_timeout = self.get_parameter('retry_timeout').value
+      self.retry_time_sec = self.get_parameter('retry_time_sec').value
       self.last_restart_time = self.get_clock().now()
       self.timer = self.create_timer(1 / 10.0, self.loop)
 
@@ -208,7 +208,7 @@ class Ntrip(Node):
 
       current_time = self.get_clock().now()
       sec_since_last_command = ( current_time - self.last_restart_time ).nanoseconds / 1e9
-      if not self.is_thread_alive() and sec_since_last_command > self.retry_timeout:
+      if not self.is_thread_alive() and sec_since_last_command > self.retry_time_sec:
         self.last_restart_time = current_time
         self.get_logger().info('Dead. Restarting...')
         self.restart_ntrip_thread()
