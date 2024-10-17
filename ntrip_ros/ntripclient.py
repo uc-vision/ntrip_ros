@@ -152,14 +152,15 @@ class Ntrip(Node):
       self.server = self.get_parameter('server').value
       self.servers = self.get_parameter('servers').value
 
+      self.retry_time_sec = self.get_parameter('retry_time_sec').value
+      self.last_restart_time = self.get_clock().now()
+
       self.declare_server_parameters(self.servers)
       self.add_on_set_parameters_callback(self.parameters_callback)
 
       self.get_logger().info(f'Start Ntrip Server: {self.server}')
       self.start_ntrip_thread()
 
-      self.retry_time_sec = self.get_parameter('retry_time_sec').value
-      self.last_restart_time = self.get_clock().now()
       self.timer = self.create_timer(1 / 10.0, self.loop)
 
     def get_ntrip_client(self):
