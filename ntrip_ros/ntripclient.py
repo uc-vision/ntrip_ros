@@ -42,15 +42,16 @@ class NTripConfig:
 
 class NTripClient:
 
-    def __init__(self, rtcm_publisher, config: NTripConfig, condition: Event):
+    def __init__(self, rtcm_publisher, config: NTripConfig, condition: Event, retry_time: float = 15.0):
         self.ntrip_server = config.ntrip_server
         self.ntrip_user = config.ntrip_user
         self.ntrip_pass = config.ntrip_pass
         self.ntrip_stream = config.ntrip_stream
         self.nmea_gga = config.nmea_gga
-        
+
         self.pub = rtcm_publisher
         self.condition = condition
+        self.retry_time = retry_time
         self.logger = RcutilsLogger(name="Ntrip_client_logger")
 
 
@@ -101,7 +102,7 @@ class NTripClient:
                 restart_count = restart_count + 1
                 self.logger.info(f'Zero length {restart_count}')
                 connection.close()
-                time.sleep(15)   # you get banned from rtk2go for rapid retries
+                time.sleep(self.retry_time)   # you get banned from rtk2go for rapid retries
                 connection = HTTPConnection(self.ntrip_server)
                 connection.request('GET', '/'+self.ntrip_stream, self.nmea_gga, headers)
                 response = connection.getresponse()
@@ -171,7 +172,7 @@ class Ntrip(Node):
       )
       self.condition = Event()
       pub = self.create_publisher(Message, self.rtcm_topic, 10)
-      return NTripClient(pub, config, self.condition)
+      return NTripClient(pub, config, self.condition, self.retry_time_sec)
     
     def is_thread_alive(self):
       if self.srv_thread is not None:
