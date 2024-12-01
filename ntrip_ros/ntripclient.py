@@ -17,6 +17,7 @@ from rcl_interfaces.msg import SetParametersResult
 
 import time
 from rclpy.impl.rcutils_logger import RcutilsLogger
+from rclpy.constants import S_TO_NS
 
 
 ''' This is to fix the IncompleteRead error
@@ -42,7 +43,7 @@ class NTripConfig:
 
 class NTripClient:
 
-    def __init__(self, rtcm_publisher, config: NTripConfig, condition: Event, retry_time: float = 15.0):
+    def __init__(self, rtcm_publisher, config: NTripConfig, condition: Event, func_now, retry_time: float = 15.0):
         self.ntrip_server = config.ntrip_server
         self.ntrip_user = config.ntrip_user
         self.ntrip_pass = config.ntrip_pass
@@ -53,6 +54,18 @@ class NTripClient:
         self.condition = condition
         self.retry_time = retry_time
         self.logger = RcutilsLogger(name="Ntrip_client_logger")
+        self.now = func_now
+
+
+    def sleep(self):
+      started = self.now()
+      while True:
+        now = self.now()
+        dur = now - started
+        time_lapsed = dur.nanoseconds > self.retry_time * S_TO_NS
+        if self.condition.is_set() or time_lapsed:
+          break
+        time.sleep(0.1)
 
 
     def run(self):
@@ -85,7 +98,6 @@ class NTripClient:
                     data = response.read(2)
                     buf += data
                     typ = (data[0] * 256 + data[1]) // 16
-                    #print (str(datetime.now()), cnt, typ)
                     cnt = cnt + 1
                     for x in range(cnt):
                         data = response.read(1)
@@ -102,7 +114,7 @@ class NTripClient:
                 restart_count = restart_count + 1
                 self.logger.info(f'Zero length {restart_count}')
                 connection.close()
-                time.sleep(self.retry_time)   # you get banned from rtk2go for rapid retries
+                self.sleep()   # you get banned from rtk2go for rapid retries
                 connection = HTTPConnection(self.ntrip_server)
                 connection.request('GET', '/'+self.ntrip_stream, self.nmea_gga, headers)
                 response = connection.getresponse()
@@ -173,7 +185,7 @@ class Ntrip(Node):
       )
       self.condition = Event()
       pub = self.create_publisher(Message, self.rtcm_topic, 10)
-      return NTripClient(pub, config, self.condition, self.retry_time_sec)
+      return NTripClient(pub, config, self.condition, self.get_clock().now, self.retry_time_sec)
     
     def is_thread_alive(self):
       if self.srv_thread is not None:
