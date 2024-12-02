@@ -19,6 +19,8 @@ import time
 from rclpy.impl.rcutils_logger import RcutilsLogger
 from rclpy.constants import S_TO_NS
 
+from std_srvs.srv import Empty
+from std_msgs.msg import Bool
 
 ''' This is to fix the IncompleteRead error
     http://bobrochel.blogspot.com/2010/11/bad-servers-chunked-encoding-and.html'''
@@ -144,8 +146,9 @@ class Ntrip(Node):
           if param.value not in self.servers:
             self.get_logger().warn(f'{param.value} not in servers')
             continue
-          self.parameter_change = True
           self.server = param.value
+          if self.is_thread_alive() and self.enabled:
+            self.restart_ntrip_thread()
       return SetParametersResult(successful=True)
 
     def __init__(self):
@@ -159,6 +162,9 @@ class Ntrip(Node):
       self.declare_parameter('servers', [''])
       self.declare_parameter('server', '')
       self.declare_parameter('retry_time_sec', 20.0)
+      self.declare_parameter('autostart', True)
+
+      self.enabled = self.get_parameter('autostart').value
       
       self.rtcm_topic = self.get_parameter('rtcm_topic').value
       self.server = self.get_parameter('server').value
@@ -171,9 +177,27 @@ class Ntrip(Node):
       self.add_on_set_parameters_callback(self.parameters_callback)
 
       self.get_logger().info(f'Start Ntrip Server: {self.server}')
-      self.start_ntrip_thread()
 
+      self.stop_service()
+      self.start_service()
+      self.active_pub = self.create_publisher(Bool, '~/active', 1)
       self.timer = self.create_timer(1 / 10.0, self.loop)
+
+
+    def stop_service(self):
+      def stop(a, b):
+        self.get_logger().info('Stopping Ntrip Server')
+        self.stop_ntrip_thread()
+        self.enabled = False
+        return b
+      return self.create_service(Empty, '~/stop', stop)
+
+    def start_service(self):
+      def start(a, b):
+        self.start_ntrip_thread()
+        self.enabled = True
+        return b
+      return self.create_service(Empty, '~/start', start)
 
     def get_ntrip_client(self):
       config = NTripConfig(
@@ -192,39 +216,34 @@ class Ntrip(Node):
         return self.srv_thread.is_alive()
       
     def restart_ntrip_thread(self):
-      if self.srv_thread is not None:
-        self.get_logger().info('Stopping Ntrip Server')
-        self.stop_ntrip_thread()
-
-      self.get_logger().info(f'Start Ntrip Server: {self.server}')
+      self.stop_ntrip_thread()
       self.start_ntrip_thread()
     
     def start_ntrip_thread(self):
       if self.srv_thread is None:
+        self.get_logger().info(f'Start Ntrip Server: {self.server}')
         ntrip_client = self.get_ntrip_client()
-        
         self.srv_thread = Thread(target=ntrip_client.run, daemon=True)
         self.srv_thread.start()
 
     def stop_ntrip_thread(self):
-      self.condition.set()
-      self.srv_thread.join()
-      self.srv_thread = None
+      if self.srv_thread is not None:
+        self.get_logger().info('Stopping Ntrip Server')
+        self.condition.set()
+        self.srv_thread.join()
+        self.srv_thread = None
 
     def destroy_node(self):
       self.stop_ntrip_thread()
       super().destroy_node()
 
     def loop(self):
-      if self.parameter_change and self.is_thread_alive():
-        self.restart_ntrip_thread()
-        self.parameter_change = False
-
+      self.active_pub.publish( Bool(data = self.enabled) )
       current_time = self.get_clock().now()
       sec_since_last_command = ( current_time - self.last_restart_time ).nanoseconds / 1e9
-      if not self.is_thread_alive() and sec_since_last_command > self.retry_time_sec:
+      if not self.is_thread_alive() and sec_since_last_command > self.retry_time_sec and self.enabled:
         self.last_restart_time = current_time
-        self.get_logger().info('Dead. Restarting...')
+        self.get_logger().info('Starting ntrip server')
         self.restart_ntrip_thread()
         
 
